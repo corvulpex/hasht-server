@@ -1,20 +1,24 @@
 #include "hashtable.h"
 #include <chrono>
+#include <csignal>
 #include <cstddef>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <errno.h>
 
 typedef enum {
 	INSERT,
-	DELETE, 
+	REMOVE, 
 	GET
 } OP_Type;
 
@@ -53,14 +57,27 @@ class Server {
 	Operation<K, T> *ports;
 
 public:
-	Server(size_t bucket_num, const char* mem_name, size_t port_count, size_t thread_count) {
+	Server(const char* mem_name, size_t bucket_num, size_t port_count, size_t thread_count) {
 		this->table = std::make_unique<Hashtable<K, T>>(bucket_num);
 		this->port_count = port_count;
 		this->thread_count = thread_count;
 
 		int shmem = shm_open(mem_name, O_CREAT | O_RDWR, 0666);
-		ftruncate(shmem, sizeof(Operation<K, T>) * port_count);
+		if (!shmem) {
+			std::cerr << "Opening shared memory failed: " << strerror(errno) << "\n";
+			throw std::runtime_error("");
+		}
+		if (ftruncate(shmem, sizeof(Operation<K, T>) * port_count) == -1) {
+			std::cerr << "Ftruncate failed: " << strerror(errno) << "\n";
+			shm_unlink(mem_name);
+			throw std::runtime_error("");
+		};
 		ports = (Operation<K, T> *) mmap(0, sizeof(Operation<K, T>) * port_count, PROT_WRITE | PROT_READ, MAP_SHARED, shmem, 0);
+		if (ports == MAP_FAILED) {
+			std::cerr << "Mmap failed: " << strerror(errno) << "\n";
+			shm_unlink(mem_name);
+			throw std::runtime_error("");
+		}
 	}
 
 	void handle_op(size_t i) {
@@ -74,7 +91,7 @@ public:
 				ports[i].status = EMPTY;
 				return;
 
-			case DELETE:
+			case REMOVE:
 				table->remove(ports[i].key);
 				ports[i].status = EMPTY;
 				return;
@@ -95,6 +112,7 @@ public:
 			size_t c = 0;
 			for (size_t i = low_port; i < high_port; i++) {
 				if (ports[i].status == INCOMING) {
+					std::cout << "New request\n";
 					handle_op(i);	
 					c++;
 				}
@@ -107,6 +125,8 @@ public:
 	}
 
 	void run() {
+		memset(ports, 0, sizeof(Operation<K, T>) * port_count);
+
 		workers = std::vector<thread_wrap>(thread_count);
 
 		size_t port_per_thread = port_count / thread_count;
