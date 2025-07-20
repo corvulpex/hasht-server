@@ -1,6 +1,5 @@
 #include "hashtable.h"
 #include <chrono>
-#include <csignal>
 #include <cstddef>
 #include <cstring>
 #include <iostream>
@@ -15,6 +14,7 @@
 #include <unistd.h>
 #include <vector>
 #include <errno.h>
+
 
 typedef enum {
 	INSERT,
@@ -31,7 +31,6 @@ typedef enum {
 
 template <typename K, typename T>
 struct Operation {
-	std::mutex lock;
 	OP_Type type;
 	OP_STATUS status;
 	K key;
@@ -39,9 +38,15 @@ struct Operation {
 };
 
 template <typename K, typename T>
-struct shmem {
+struct SH_MEM {
+	size_t ret_tail;
+	size_t op_tail;
+	size_t op_head;
+	std::mutex tail_lock;
+	std::mutex head_lock;
 	Operation<K, T> op_ports[];
 };
+
 
 typedef struct {
 	std::thread thread;
@@ -54,7 +59,7 @@ class Server {
 	size_t port_count;
 	size_t thread_count;
 	std::vector<thread_wrap> workers;
-	Operation<K, T> *ports;
+	SH_MEM<K, T> *sh_mem;
 
 public:
 	Server(const char* mem_name, size_t bucket_num, size_t port_count, size_t thread_count) {
@@ -67,13 +72,13 @@ public:
 			std::cerr << "Opening shared memory failed: " << strerror(errno) << "\n";
 			throw std::runtime_error("");
 		}
-		if (ftruncate(shmem, sizeof(Operation<K, T>) * port_count) == -1) {
+		if (ftruncate(shmem, sizeof(Operation<K, T>) * port_count + sizeof(size_t) * 3 + sizeof(std::mutex) * 2) == -1) {
 			std::cerr << "Ftruncate failed: " << strerror(errno) << "\n";
 			shm_unlink(mem_name);
 			throw std::runtime_error("");
 		};
-		ports = (Operation<K, T> *) mmap(0, sizeof(Operation<K, T>) * port_count, PROT_WRITE | PROT_READ, MAP_SHARED, shmem, 0);
-		if (ports == MAP_FAILED) {
+		sh_mem = (SH_MEM<K, T> *) mmap(0, sizeof(Operation<K, T>) * port_count + sizeof(size_t) * 3 + sizeof(std::mutex) * 2, PROT_WRITE | PROT_READ, MAP_SHARED, shmem, 0);
+		if (sh_mem == MAP_FAILED) {
 			std::cerr << "Mmap failed: " << strerror(errno) << "\n";
 			shm_unlink(mem_name);
 			throw std::runtime_error("");
@@ -81,24 +86,23 @@ public:
 	}
 
 	void handle_op(size_t i) {
-		std::unique_lock<std::mutex> lock(ports[i].lock);
-		if (ports[i].status != INCOMING)
+		if (sh_mem->op_ports[i].status != INCOMING)
 			return;
 
-		switch (ports[i].type) {
+		switch (sh_mem->op_ports[i].type) {
 			case INSERT:
-				table->insert(ports[i].key, ports[i].value.value());
-				ports[i].status = EMPTY;
+				table->insert(sh_mem->op_ports[i].key, sh_mem->op_ports[i].value.value());
+				sh_mem->op_ports[i].status = EMPTY;
 				return;
 
 			case REMOVE:
-				table->remove(ports[i].key);
-				ports[i].status = EMPTY;
+				table->remove(sh_mem->op_ports[i].key);
+				sh_mem->op_ports[i].status = EMPTY;
 				return;
 
 			case GET:
-				ports[i].value = table->get(ports[i].key);
-				ports[i].status = FINISHED;
+				sh_mem->op_ports[i].value = table->get(sh_mem->op_ports[i].key);
+				sh_mem->op_ports[i].status = FINISHED;
 				return;
 
 			default:
@@ -106,51 +110,56 @@ public:
 		}
 	}
 
-	void thread_runner(size_t id, size_t low_port, size_t high_port) {
+	void thread_runner(size_t id) {
 		while (! workers[id].terminate) {
 
-			size_t c = 0;
-			for (size_t i = low_port; i < high_port; i++) {
+			if (sh_mem->op_head != sh_mem->op_tail) {
+				std::unique_lock<std::mutex> lock(sh_mem->tail_lock);
+				if (sh_mem->op_head == sh_mem->op_tail)
+					continue;
 
-				if (ports[i].status == INCOMING) {
-					std::cout << "New request\n";
-					handle_op(i);	
-					c++;
-				}
-			}
-	
-			if (!c) 
+				size_t port_num = sh_mem->op_tail;
+				sh_mem->op_tail++;
+				sh_mem->op_tail %= port_count;
+				lock.unlock();
+				handle_op(port_num);
+			}			
+			else {
 				std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
+			}
 		}	
 	}
 
-	void run() {
-		memset(ports, 0, sizeof(Operation<K, T>) * port_count);
+	void cleanup_thread() {
+		while(! workers[thread_count].terminate) {
+			if (sh_mem->ret_tail != sh_mem->op_tail) {
 
-		workers = std::vector<thread_wrap>(thread_count);
+				if (sh_mem->op_ports[sh_mem->ret_tail].status == EMPTY)
+					sh_mem->ret_tail = (sh_mem->ret_tail + 1) % port_count;
 
-		size_t port_per_thread = port_count / thread_count;
-		size_t extra_ports = port_count % thread_count;
-		size_t cur = 0;
-		for (size_t i = 0; i < thread_count; i++) {
-			size_t upper_port = cur + port_per_thread;
-			if (extra_ports) {
-				upper_port++;
-				extra_ports--;
 			}
-
-			workers[i] = {std::thread( [this, i, cur, upper_port] { thread_runner(i, cur, upper_port); }), false};
-
-			cur = upper_port;
+			else {
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			}
 		}
 	}
 
-	void stop() {
+	void run() {
+		memset(sh_mem, 0, sizeof(Operation<K, T>) * port_count + sizeof(size_t) * 3 + sizeof(std::mutex) * 2);
+
+		workers = std::vector<thread_wrap>(thread_count + 1);
+
 		for (size_t i = 0; i < thread_count; i++) {
+			workers[i] = {std::thread( [this, i] { thread_runner(i); }), false};
+		}
+		workers[thread_count] = {std::thread( [this] { cleanup_thread(); }), false};
+	}
+
+	void stop() {
+		for (size_t i = 0; i < thread_count + 1; i++) {
 			workers[i].terminate = true;
 		}
-		for (size_t i = 0; i < thread_count; i++) {
+		for (size_t i = 0; i < thread_count + 1; i++) {
 			workers[i].thread.join();
 		}
 

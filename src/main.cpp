@@ -1,6 +1,4 @@
-#include <iostream>
 #include <unistd.h>
-#include "hashtable.h"
 #include "server.h"
 
 int main(int argc, 	char* argv[]) {
