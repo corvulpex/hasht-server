@@ -111,6 +111,7 @@ public:
 
 			size_t c = 0;
 			for (size_t i = low_port; i < high_port; i++) {
+
 				if (ports[i].status == INCOMING) {
 					std::cout << "New request\n";
 					handle_op(i);	
@@ -133,7 +134,7 @@ public:
 		size_t extra_ports = port_count % thread_count;
 		size_t cur = 0;
 		for (size_t i = 0; i < thread_count; i++) {
-			size_t upper_port = cur += port_per_thread;
+			size_t upper_port = cur + port_per_thread;
 			if (extra_ports) {
 				upper_port++;
 				extra_ports--;
