@@ -136,14 +136,9 @@ public:
 		
 		if(shm_unlink(mem_name) == -1) {
 			std::cerr << "Could not unlink shared memory correctly: " << strerror(errno) << "\n";
-			if (munmap(sh_mem, shared_mem_size<K, T>(port_count)) == -1) {
-				std::cerr << "Could not unmap shared memory correctly: " << strerror(errno) << "\n";
-			}
-			throw std::runtime_error("");
 		}
 		if (munmap(sh_mem, shared_mem_size<K, T>(port_count)) == -1) {
 			std::cerr << "Could not unmap shared memory correctly: " << strerror(errno) << "\n";
-			throw std::runtime_error("");
 		}
 
 	}
