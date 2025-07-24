@@ -21,7 +21,8 @@ Optionally you can change the number of requests that can be queued at the same 
 ```
 ./hasht-server [name_of_shared_memory] [number_of_buckets] [number_of_queue_slots]
 ```
-Note: This number has to be the same in the client program or the queue will break.
+> [!WARNING]
+> The number of queue slots has to be the same in the client program or the queue will break.
 
 ### Using the running server
 
