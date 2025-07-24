@@ -29,3 +29,7 @@ Optionally you can change the number of requests that can be queued at the same 
 After the server is running you can use the hashtable with the client side program.<br>
 You can quit it by entering 'q'.
 
+
+## Notes
+
+This specific implementation lets you insert <int, int> pairs into the hashmap. The underlying logic is capable of using arbitrary types of a fixed size that have a std::hash implementation.
