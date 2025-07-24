@@ -3,14 +3,10 @@
 Server-side implementation for providing a hashtable to the client program via POSIX shared memory.
 The client-side implementation can be found [here](https://github.com/corvulpex/hasht-client).
 
----
-
 ## Building:
 
 You can build this program either by using CMake or build it directly by using the included Makefile.
 Note that this program relies on POSIX functionality so it won't build on Windows. 
-
----
 
 ## How to use:
 
@@ -29,6 +25,6 @@ Note: This number has to be the same in the client program or the queue will bre
 
 ### Using the running server
 
-After the server is running you can use the hashtable with the client side program.
+After the server is running you can use the hashtable with the client side program.<br>
 You can quit it by entering 'q'.
 
