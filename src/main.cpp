@@ -6,7 +6,11 @@
 
 
 void print_help() {
-	std::cout << "You're on your own for now\n";
+	std::cout << "Hasht-Server usage:\n";
+	std::cout << "Start the server by supplying the name of the shared memory object and number of hash buckets:\n";
+	std::cout << "	./hasht-server [shared_mem_name] [number_of_buckets]\n";
+	std::cout << "Optionally add number of request queue slots (must be the same for the client!!!):\n";
+	std::cout << "	./hasht-server [shared_mem_name] [number_of_buckets] [number_of_queue_slots]\n";
 }
 
 
