@@ -144,7 +144,7 @@ public:
 	}
 
 	void run() {
-		memset(sh_mem, 0, sizeof(Operation<K, T>) * port_count + sizeof(size_t) * 3 + sizeof(std::mutex) * 2);
+		memset(sh_mem, 0, shared_mem_size<K, T>(port_count));
 
 		workers = std::vector<thread_wrap>(thread_count + 1);
 
