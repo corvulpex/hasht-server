@@ -1,6 +1,7 @@
 #include "shared_mem.h"
 #include "hashtable.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstring>
@@ -51,7 +52,7 @@ class Server {
 			case GET:
 				sh_mem->op_ports[i].value = table->get(sh_mem->op_ports[i].key);
 				if (sh_mem->op_ports[i].value)
-					std::cout << sh_mem->op_ports[i].value.value() << "\n";
+					std::cout << "Port " << i << ": " << sh_mem->op_ports[i].value.value() << "\n";
 				sh_mem->op_ports[i].status = FINISHED;
 				return;
 
@@ -70,8 +71,7 @@ class Server {
 
 
 				size_t port_num = sh_mem->op_tail;
-				sh_mem->op_tail++;
-				sh_mem->op_tail %= port_count;
+				sh_mem->op_tail = (sh_mem->op_tail + 1) % port_count;
 				lock.unlock();
 				handle_op(port_num);
 			}			
@@ -144,7 +144,12 @@ public:
 	}
 
 	void run() {
-		memset(sh_mem, 0, shared_mem_size<K, T>(port_count));
+		sh_mem->ret_tail = 0;
+		sh_mem->op_tail = 0;
+		sh_mem->op_head = 0;
+		sh_mem->tail_lock.unlock();
+		sh_mem->head_lock.unlock();
+		std::fill_n(sh_mem->op_ports, port_count, Operation<K, T>{});
 
 		workers = std::vector<thread_wrap>(thread_count + 1);
 

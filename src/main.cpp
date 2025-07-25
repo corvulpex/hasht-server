@@ -34,10 +34,24 @@ int main(int argc, 	char* argv[]) {
 		return 1;
 	}
 
-	if (argc > 3)
+	long long int ports = 31;
+	if (argc >= 4) {
+		std::string pstr(argv[3]);
+		std::stringstream psstream(pstr);
+		psstream >> ports;
+		if (ports <= 0) {
+			std::cerr << "Number of queue ports was not a valid positive number -> will be set to default (30)\n";
+			ports = 31;
+		}
+		else {
+			ports++;
+		}
+	}
+
+	if (argc > 4)
 		std::cout << "Extra arguments ignored\n";
 
-	auto server = new Server<int, int>(argv[1], (size_t) buckets, 30, 10);
+	auto server = new Server<int, int>(argv[1], (size_t) buckets, (size_t) ports, 10);
 
 	server->run();
 
